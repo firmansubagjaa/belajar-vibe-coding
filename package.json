@@ -1,0 +1,25 @@
+{
+  "name": "belajar-vibe-coding",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "migrate": "drizzle-kit migrate",
+    "generate": "drizzle-kit generate"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "drizzle-kit": "^0.31.11",
+    "drizzle-orm": "^0.45.3",
+    "fast-decode-uri-component": "^1.0.1",
+    "hono": "^4.13.12",
+    "pg": "^8.23.1"
+  }
+}
