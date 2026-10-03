@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { db } from "./db";
 import { users, posts } from "./schema";
 import { eq } from "drizzle-orm";
+import usersRoute from "./routes/users-route";
 
 const app = new Hono();
 
@@ -10,7 +11,10 @@ app.get("/health", (c) => {
   return c.json({ status: "ok", message: "Server is running" });
 });
 
-// ===== USER ENDPOINTS =====
+// ===== API ROUTES =====
+app.route("/api/users", usersRoute);
+
+// ===== LEGACY USER ENDPOINTS (GET/UPDATE/DELETE) =====
 
 // Get all users
 app.get("/users", async (c) => {
@@ -51,7 +55,6 @@ app.put("/users/:id", async (c) => {
     .set({
       name: body.name,
       email: body.email,
-      updatedAt: new Date(),
     })
     .where(eq(users.id, id))
     .returning();
