@@ -1,48 +1,53 @@
-# Planning: Fitur Registrasi User
+# Planning: Fitur Login User
 
 ## Tujuan
 
-Menambahkan tabel `users` (versi baru dengan kolom password) dan endpoint API untuk registrasi user baru.
+Menambahkan tabel `sessions` dan endpoint API untuk login user. Saat login berhasil, server membuat token (UUID), menyimpannya di tabel `sessions`, lalu mengembalikan token tersebut ke client.
 
 ## Konteks Project Saat Ini
 
 Baca file-file ini dulu sebelum mulai:
 
-- `src/index.ts`: entry point server (framework **Hono**, semua route saat ini masih ditulis langsung di sini)
-- `src/db.ts`: koneksi Drizzle ke PostgreSQL Supabase (`export const db`)
+- `src/index.ts`: entry point server (framework **Hono**). Router users sudah dipasang di sini dengan `app.route("/api/users", usersRoute)`
+- `src/routes/users-route.ts`: router users. Sudah ada `POST /` untuk registrasi
+- `src/services/users-service.ts`: logika bisnis users. Sudah ada fungsi `registerUser`
 - `src/schema.ts`: skema Drizzle. Sudah ada tabel `users` dan `posts`
-- `drizzle.config.ts`: konfigurasi Drizzle Kit (output migrasi ke folder `drizzle/`)
-- `package.json`: script `generate` (buat migrasi) dan `migrate` (terapkan migrasi)
+- `src/db.ts`: koneksi Drizzle ke PostgreSQL Supabase (`export const db`)
+- `drizzle/`: folder migrasi. Sudah ada `0000_mute_crystal.sql` dan `0001_alter_users.sql`
+- `drizzle/meta/_journal.json`: daftar migrasi yang dikenali Drizzle
 
 Hal yang perlu diperhatikan:
 
-- Tabel `users` **sudah ada** di database, tapi strukturnya berbeda (kolom `name`/`email` bertipe `text`, ada `updated_at`, belum ada `password`). Tabel ini harus **diubah**, bukan dibuat ulang dari nol.
-- Tabel `posts` punya foreign key `author_id` ke `users.id`. Jangan hapus tabel `users` dengan cara yang merusak relasi ini.
-- Database sudah berisi data contoh (user "John Doe" dan satu post). Menambah kolom `password NOT NULL` akan gagal kalau ada baris lama tanpa password. Hapus dulu data contoh tersebut (ini data testing, aman dihapus), atau tanyakan ke reviewer jika ragu.
+- Password di tabel `users` disimpan sebagai hash bcrypt, dibuat dengan `Bun.password.hash`. Untuk mencocokkan password saat login, gunakan pasangannya: `Bun.password.verify`.
+- Di database sudah ada user untuk testing: email `eko@localhost`, password `rahasia`.
+- **Jangan jalankan `bun run generate`.** Snapshot Drizzle di `drizzle/meta/` belum mencatat migrasi `0001`, jadi perintah ini akan bertanya secara interaktif dan membuat ulang perubahan tabel `users` yang sudah diterapkan, sehingga migrasi gagal. Buat file migrasi secara manual (lihat Tahap 2).
+- Endpoint registrasi (`POST /api/users`) dan endpoint lama (`/health`, `/users`, `/posts`) harus tetap berfungsi.
 
 ## Spesifikasi
 
-### Tabel `users`
+### Tabel `sessions`
 
-| Kolom      | Tipe           | Aturan                              |
-|------------|----------------|-------------------------------------|
-| id         | integer        | auto increment, primary key         |
-| name       | varchar(255)   | not null                            |
-| email      | varchar(255)   | not null, unique                    |
-| password   | varchar(255)   | not null, berisi hash bcrypt        |
-| created_at | timestamp      | default current_timestamp           |
+| Kolom      | Tipe         | Aturan                                   |
+|------------|--------------|------------------------------------------|
+| id         | integer      | auto increment, primary key              |
+| token      | varchar(255) | not null, berisi UUID token user login   |
+| user_id    | integer      | not null, foreign key ke `users.id`      |
+| created_at | timestamp    | default current_timestamp                |
 
-Catatan: `unique` pada email dipertahankan (sudah ada sekarang) sebagai pengaman tambahan, walaupun pengecekan email duplikat tetap dilakukan di service.
+Catatan:
 
-### Endpoint Registrasi
+- Nama tabel memakai `sessions` (jamak) supaya konsisten dengan `users` dan `posts`.
+- `user_id` dibuat `not null` karena session tanpa user tidak ada artinya.
+- Untuk kolom `user_id` di Drizzle, gunakan tipe `integer`, **bukan** `serial`. `serial` hanya untuk kolom id yang auto increment.
 
-`POST /api/users`
+### Endpoint Login
+
+`POST /api/users/login`
 
 Request body:
 
 ```json
 {
-  "name": "Eko",
   "email": "eko@localhost",
   "password": "rahasia"
 }
@@ -52,15 +57,17 @@ Response sukses:
 
 ```json
 {
-  "data": "OK"
+  "data": "token"
 }
 ```
 
-Response error (email sudah dipakai):
+`"token"` di atas adalah contoh. Isinya adalah UUID yang baru dibuat, misalnya `"3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a1b2c"`.
+
+Response error (email tidak ditemukan **atau** password salah):
 
 ```json
 {
-  "error": "Email sudah terdaftar"
+  "error": "Email atau password salah"
 }
 ```
 
@@ -69,75 +76,78 @@ Response error (email sudah dipakai):
 - `src/routes/`: berisi definisi routing. Format nama file: `users-route.ts`
 - `src/services/`: berisi logika bisnis. Format nama file: `users-service.ts`
 
+Fitur login masih bagian dari users, jadi **tambahkan ke file yang sudah ada**. Jangan buat file route/service baru.
+
 ## Tahapan Implementasi
 
-### 1. Siapkan dependency bcrypt
+### 1. Tambah skema tabel `sessions`
 
-- Bun sudah punya fungsi hashing bawaan (`Bun.password.hash` dan `Bun.password.verify`) yang mendukung algoritma bcrypt. Gunakan ini dengan opsi algoritma `bcrypt`, jadi tidak perlu install library tambahan.
-- Kalau memilih library lain, pastikan hasilnya tetap hash bcrypt dan versi dependency di-pin.
+- Di `src/schema.ts`, tambahkan definisi tabel `sessions` sesuai spesifikasi.
+- `token` pakai `varchar` panjang 255, `user_id` pakai `integer` dengan `.references(() => users.id)`.
+- Jangan ubah definisi tabel `users` atau `posts`.
 
-### 2. Ubah skema tabel `users`
+### 2. Buat migrasi secara manual
 
-- Edit definisi `users` di `src/schema.ts` agar sesuai tabel spesifikasi di atas:
-  - `name` dan `email` jadi `varchar` panjang 255
-  - tambah kolom `password` varchar 255 not null
-  - hapus kolom `updated_at`
-- Sesuaikan kode lain yang masih memakai kolom `updatedAt` milik users (cek endpoint update user di `src/index.ts`) supaya tidak error saat compile.
-- Tabel `posts` tidak perlu diubah.
+- Buat file `drizzle/0002_create_sessions.sql` berisi SQL `CREATE TABLE "sessions"` dengan kolom sesuai spesifikasi, ditambah `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY` untuk `user_id` ke `users(id)`. Contoh format bisa dilihat di `drizzle/0000_mute_crystal.sql`.
+- Tambahkan entry baru di `drizzle/meta/_journal.json`:
+  - `idx`: 2
+  - `tag`: `0002_create_sessions` (harus sama persis dengan nama file tanpa `.sql`)
+  - `when`: angka timestamp yang lebih besar dari entry sebelumnya
+  - `version` dan `breakpoints`: samakan dengan entry lain
+- Jalankan `bun run migrate`.
+- Kalau migrate berhasil tapi tabel tidak muncul, cek lagi apakah entry journal sudah benar. Migrasi yang tidak tercatat di journal akan diabaikan.
 
-### 3. Buat dan terapkan migrasi
+### 3. Tambah fungsi login di service
 
-- Hapus data contoh lama di tabel `posts` dan `users` (lihat bagian Konteks).
-- Jalankan `bun run generate` untuk membuat file migrasi baru di folder `drizzle/`.
-- Periksa isi file SQL yang dihasilkan: pastikan isinya `ALTER TABLE` (mengubah tabel), bukan `DROP TABLE`.
-- Jalankan `bun run migrate` untuk menerapkan ke Supabase.
+- Di `src/services/users-service.ts`, tambahkan fungsi baru untuk login yang menerima `email` dan `password`. Alurnya:
+  1. Cari user berdasarkan email.
+  2. Kalau user tidak ditemukan, lempar error dengan pesan `Email atau password salah`.
+  3. Cocokkan password dari request dengan hash di database memakai `Bun.password.verify`.
+  4. Kalau tidak cocok, lempar error dengan pesan yang **sama persis**: `Email atau password salah`.
+  5. Buat token UUID dengan `crypto.randomUUID()` (bawaan Bun, tidak perlu install apa pun).
+  6. Simpan token dan `user_id` ke tabel `sessions`.
+  7. Kembalikan token.
+- Pesan error untuk email salah dan password salah harus sama. Tujuannya supaya orang luar tidak bisa menebak email mana yang terdaftar.
+- Seperti `registerUser`, service tidak boleh mengurus HTTP (status code atau format response).
 
-### 4. Buat service registrasi
+### 4. Tambah route login
 
-- Buat file `src/services/users-service.ts`.
-- Buat satu fungsi untuk registrasi user yang menerima `name`, `email`, `password`. Alurnya:
-  1. Cari user berdasarkan email di database.
-  2. Kalau sudah ada, lempar error dengan pesan `Email sudah terdaftar`.
-  3. Kalau belum ada, hash password dengan bcrypt.
-  4. Simpan user baru (name, email, password hasil hash) ke database.
-- Service **tidak boleh** tahu apa-apa soal HTTP (tidak mengurus status code atau format response). Itu tugas route.
-
-### 5. Buat route registrasi
-
-- Buat file `src/routes/users-route.ts`.
-- Buat instance router Hono khusus untuk users, lalu definisikan `POST /` di dalamnya.
+- Di `src/routes/users-route.ts`, tambahkan handler `POST /login` di router yang sudah ada.
+- Karena router sudah dipasang di `/api/users`, path `/login` otomatis menjadi `/api/users/login`. **Tidak perlu** mengubah `src/index.ts`.
 - Alur handler:
   1. Ambil body JSON dari request.
-  2. Panggil fungsi registrasi dari service.
-  3. Kalau sukses, kembalikan `{ "data": "OK" }`.
-  4. Kalau service melempar error email terdaftar, kembalikan `{ "error": "Email sudah terdaftar" }` dengan status HTTP 400.
-- Export router ini supaya bisa dipasang di `src/index.ts`.
+  2. Kalau `email` atau `password` kosong, kembalikan error dengan status 400.
+  3. Panggil fungsi login dari service.
+  4. Kalau sukses, kembalikan `{ "data": "<token>" }`.
+  5. Kalau service melempar error `Email atau password salah`, kembalikan `{ "error": "Email atau password salah" }` dengan status HTTP 401.
+  6. Error lain: kembalikan status 500 dan log error-nya ke console.
+- Ikuti pola handler registrasi yang sudah ada di file yang sama.
 
-### 6. Pasang route ke server
-
-- Di `src/index.ts`, daftarkan router users di path `/api/users`.
-- Endpoint lama (`/users`, `/posts`, `/health`) biarkan saja, jangan dihapus atau dipindah di tugas ini.
-
-### 7. Verifikasi
+### 5. Verifikasi
 
 Jalankan server (`bun run dev`), lalu tes manual dengan HTTP client:
 
-1. Kirim `POST /api/users` dengan body contoh. Harus dapat `{ "data": "OK" }`.
-2. Kirim request yang sama sekali lagi. Harus dapat `{ "error": "Email sudah terdaftar" }`.
-3. Cek tabel `users` di dashboard Supabase: kolom `password` harus berisi hash (diawali `$2`), **bukan** teks `rahasia`.
-4. Pastikan endpoint lama seperti `GET /health` masih jalan.
+1. `POST /api/users/login` dengan email `eko@localhost` dan password `rahasia`. Harus dapat `{ "data": "<uuid>" }`.
+2. Login lagi dengan password salah. Harus dapat `{ "error": "Email atau password salah" }` dengan status 401.
+3. Login dengan email yang tidak terdaftar. Harus dapat pesan error yang sama dengan status 401.
+4. Login dua kali dengan data benar. Token yang didapat harus berbeda setiap kali.
+5. Cek tabel `sessions` di dashboard Supabase: ada baris baru dengan token yang sama seperti response, dan `user_id` sesuai id user Eko.
+6. Pastikan `POST /api/users` (registrasi) dan `GET /health` masih jalan.
+
+Catatan untuk Windows PowerShell: perintah `curl` di PowerShell adalah alias `Invoke-WebRequest` dan tidak menerima flag `-X`. Gunakan `Invoke-WebRequest -UseBasicParsing`, `curl.exe`, atau HTTP client seperti Postman.
 
 ## Kriteria Selesai
 
-- Tabel `users` di Supabase sesuai spesifikasi
-- File `src/routes/users-route.ts` dan `src/services/users-service.ts` ada dan dipakai
-- Registrasi sukses mengembalikan `{ "data": "OK" }`
-- Email duplikat mengembalikan `{ "error": "Email sudah terdaftar" }`
-- Password tersimpan dalam bentuk hash bcrypt
-- Server jalan tanpa error
+- Tabel `sessions` ada di Supabase sesuai spesifikasi, dengan foreign key ke `users`
+- Fungsi login ada di `src/services/users-service.ts`
+- Route `POST /login` ada di `src/routes/users-route.ts`
+- Login benar mengembalikan `{ "data": "<uuid>" }` dan menyimpan session ke database
+- Email atau password salah mengembalikan `{ "error": "Email atau password salah" }` dengan status 401
+- Fitur registrasi dan endpoint lama tetap berfungsi
 
 ## Di Luar Cakupan
 
-- Login dan autentikasi (JWT/session)
-- Validasi format email atau panjang password (boleh ditambahkan nanti sebagai issue terpisah)
-- Refactor endpoint lama ke struktur routes/services
+- Middleware untuk mengecek token di endpoint lain
+- Logout (menghapus session)
+- Masa berlaku token (expired)
+- Memperbaiki snapshot Drizzle di `drizzle/meta/` (sebaiknya jadi issue terpisah)
