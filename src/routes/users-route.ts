@@ -1,14 +1,20 @@
 import { Hono } from "hono";
 import { registerUser, loginUser, getCurrentUser, logoutUser } from "../services/users-service";
+import {
+  UnauthorizedError,
+  InvalidCredentialsError,
+  EmailAlreadyExistsError,
+} from "../errors";
 
 const router = new Hono();
 
 /**
- * Ambil token dari header "Authorization: Bearer <token>"
+ * Ambil token dari header "Authorization: Bearer <token>" atau "Authorization: bearer <token>"
+ * Case-insensitive: both "Bearer" and "bearer" are accepted
  * @returns token, atau null jika header tidak ada / formatnya salah / token kosong
  */
 function extractBearerToken(header: string | undefined): string | null {
-  if (!header || !header.startsWith("Bearer ")) {
+  if (!header || !header.toLowerCase().startsWith("bearer ")) {
     return null;
   }
   const token = header.slice(7).trim();
@@ -42,11 +48,8 @@ router.post("/", async (c) => {
     return c.json({ data: "OK" });
   } catch (error) {
     // Tangkap error dari service
-    if (error instanceof Error) {
-      if (error.message === "Email sudah terdaftar") {
-        return c.json({ error: "Email sudah terdaftar" }, 400);
-      }
-      console.error("Service error:", error.message);
+    if (error instanceof EmailAlreadyExistsError) {
+      return c.json({ error: "Email sudah terdaftar" }, 400);
     }
 
     // Error lain
@@ -81,14 +84,11 @@ router.post("/login", async (c) => {
     return c.json({ data: token });
   } catch (error) {
     // Tangkap error dari service
-    if (error instanceof Error) {
-      if (error.message === "Email atau password salah") {
-        return c.json({ error: "Email atau password salah" }, 401);
-      }
-      console.error("Service error:", error.message);
+    if (error instanceof InvalidCredentialsError) {
+      return c.json({ error: "Email atau password salah" }, 401);
     }
 
-    // Error lain
+    // Error lain (termasuk DB error)
     console.error("Unexpected error:", error);
     return c.json({ error: "Login gagal" }, 500);
   }
@@ -114,14 +114,11 @@ router.get("/current", async (c) => {
     return c.json({ data: user });
   } catch (error) {
     // Tangkap error dari service
-    if (error instanceof Error) {
-      if (error.message === "Unauthorized") {
-        return c.json({ error: "Unauthorized" }, 401);
-      }
-      console.error("Service error:", error.message);
+    if (error instanceof UnauthorizedError) {
+      return c.json({ error: "Unauthorized" }, 401);
     }
 
-    // Error lain
+    // Error lain (termasuk DB error)
     console.error("Unexpected error:", error);
     return c.json({ error: "Get user gagal" }, 500);
   }
@@ -147,14 +144,11 @@ router.delete("/logout", async (c) => {
     return c.json({ data: "OK" });
   } catch (error) {
     // Tangkap error dari service
-    if (error instanceof Error) {
-      if (error.message === "Unauthorized") {
-        return c.json({ error: "Unauthorized" }, 401);
-      }
-      console.error("Service error:", error.message);
+    if (error instanceof UnauthorizedError) {
+      return c.json({ error: "Unauthorized" }, 401);
     }
 
-    // Error lain
+    // Error lain (termasuk DB error)
     console.error("Unexpected error:", error);
     return c.json({ error: "Logout gagal" }, 500);
   }
