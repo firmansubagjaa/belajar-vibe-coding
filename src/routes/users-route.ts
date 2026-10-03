@@ -4,6 +4,18 @@ import { registerUser, loginUser, getCurrentUser, logoutUser } from "../services
 const router = new Hono();
 
 /**
+ * Ambil token dari header "Authorization: Bearer <token>"
+ * @returns token, atau null jika header tidak ada / formatnya salah / token kosong
+ */
+function extractBearerToken(header: string | undefined): string | null {
+  if (!header || !header.startsWith("Bearer ")) {
+    return null;
+  }
+  const token = header.slice(7).trim();
+  return token || null;
+}
+
+/**
  * POST /
  * Register a new user
  */
@@ -88,16 +100,8 @@ router.post("/login", async (c) => {
  */
 router.get("/current", async (c) => {
   try {
-    // Ambil header Authorization
-    const authHeader = c.req.header("Authorization");
-
-    // Validasi format header
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
-
-    // Ambil token dari header (buang awalan "Bearer ")
-    const token = authHeader.substring(7).trim();
+    // Ambil token dari header Authorization
+    const token = extractBearerToken(c.req.header("Authorization"));
 
     if (!token) {
       return c.json({ error: "Unauthorized" }, 401);
@@ -129,16 +133,8 @@ router.get("/current", async (c) => {
  */
 router.delete("/logout", async (c) => {
   try {
-    // Ambil header Authorization
-    const authHeader = c.req.header("Authorization");
-
-    // Validasi format header
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
-
-    // Ambil token dari header (buang awalan "Bearer ")
-    const token = authHeader.substring(7).trim();
+    // Ambil token dari header Authorization
+    const token = extractBearerToken(c.req.header("Authorization"));
 
     if (!token) {
       return c.json({ error: "Unauthorized" }, 401);

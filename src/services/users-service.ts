@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { users, sessions } from "../schema";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 export interface RegisterInput {
   name: string;
@@ -121,67 +121,54 @@ export async function loginUser(input: LoginInput): Promise<string> {
 
 /**
  * Get current user by token
- * @throws Error if token not found or user doesn't exist
+ * @throws Error("Unauthorized") jika token atau user tidak ditemukan
+ * Error lain (misal database error) dilempar apa adanya supaya route membalas 500
  */
 export async function getCurrentUser(token: string): Promise<CurrentUserResponse> {
-  try {
-    // Cari session berdasarkan token
-    const session = await db
-      .select()
-      .from(sessions)
-      .where(eq(sessions.token, token))
-      .limit(1);
+  // Cari session berdasarkan token
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(eq(sessions.token, token))
+    .limit(1);
 
-    if (session.length === 0) {
-      throw new Error("Unauthorized");
-    }
-
-    // Cari user berdasarkan user_id dari session
-    const user = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, session[0].userId))
-      .limit(1);
-
-    if (user.length === 0) {
-      throw new Error("Unauthorized");
-    }
-
-    // Return user data tanpa password, dengan format created_at
-    return {
-      id: user[0].id,
-      name: user[0].name,
-      email: user[0].email,
-      created_at: user[0].createdAt.toISOString(),
-    };
-  } catch (error) {
-    if (error instanceof Error && error.message === "Unauthorized") {
-      throw error;
-    }
-    console.error("Error in getCurrentUser:", error);
+  if (!session) {
     throw new Error("Unauthorized");
   }
+
+  // Cari user berdasarkan user_id dari session
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, session.userId))
+    .limit(1);
+
+  if (!user) {
+    throw new Error("Unauthorized");
+  }
+
+  // Return user data tanpa password
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    created_at: user.createdAt.toISOString(),
+  };
 }
 
 
 /**
- * Logout user - delete session by token
- * @throws Error "Unauthorized" if token not found
+ * Logout user - hapus session berdasarkan token
+ * Hanya session dengan token ini yang dihapus, session di device lain tetap aktif
+ * @throws Error("Unauthorized") jika token tidak ditemukan
  */
 export async function logoutUser(token: string): Promise<void> {
-  try {
-    // Delete session by token
-    const result = await db.delete(sessions).where(eq(sessions.token, token));
+  const deleted = await db
+    .delete(sessions)
+    .where(eq(sessions.token, token))
+    .returning({ id: sessions.id });
 
-    // If no rows were deleted, token was invalid
-    if (result.rowCount === 0) {
-      throw new Error("Unauthorized");
-    }
-  } catch (error) {
-    if (error instanceof Error && error.message === "Unauthorized") {
-      throw error;
-    }
-    console.error("Error in logoutUser:", error);
+  if (deleted.length === 0) {
     throw new Error("Unauthorized");
   }
 }
