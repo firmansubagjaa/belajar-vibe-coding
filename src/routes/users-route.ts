@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { registerUser, loginUser } from "../services/users-service";
+import { registerUser, loginUser, getCurrentUser } from "../services/users-service";
 
 const router = new Hono();
 
@@ -82,4 +82,86 @@ router.post("/login", async (c) => {
   }
 });
 
+/**
+ * GET /current
+ * Get current logged in user
+ */
+router.get("/current", async (c) => {
+  try {
+    // Ambil header Authorization
+    const authHeader = c.req.header("Authorization");
+
+    // Validasi format header
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    // Ambil token dari header (buang awalan "Bearer ")
+    const token = authHeader.substring(7).trim();
+
+    if (!token) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    // Panggil service untuk mendapatkan user
+    const user = await getCurrentUser(token);
+
+    // Response sukses dengan data user
+    return c.json({ data: user });
+  } catch (error) {
+    // Tangkap error dari service
+    if (error instanceof Error) {
+      if (error.message === "Unauthorized") {
+        return c.json({ error: "Unauthorized" }, 401);
+      }
+      console.error("Service error:", error.message);
+    }
+
+    // Error lain
+    console.error("Unexpected error:", error);
+    return c.json({ error: "Get user gagal" }, 500);
+  }
+});
+
 export default router;
+
+/**
+ * GET /current
+ * Get current logged in user
+ */
+router.get("/current", async (c) => {
+  try {
+    // Ambil header Authorization
+    const authHeader = c.req.header("Authorization");
+
+    // Validasi format header
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    // Ambil token dari header (buang awalan "Bearer ")
+    const token = authHeader.substring(7).trim();
+
+    if (!token) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    // Panggil service untuk mendapatkan user
+    const user = await getCurrentUser(token);
+
+    // Response sukses dengan data user
+    return c.json({ data: user });
+  } catch (error) {
+    // Tangkap error dari service
+    if (error instanceof Error) {
+      if (error.message === "Unauthorized") {
+        return c.json({ error: "Unauthorized" }, 401);
+      }
+      console.error("Service error:", error.message);
+    }
+
+    // Error lain
+    console.error("Unexpected error:", error);
+    return c.json({ error: "Get user gagal" }, 500);
+  }
+});
