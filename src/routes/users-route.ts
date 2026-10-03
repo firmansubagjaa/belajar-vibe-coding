@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { registerUser, loginUser, getCurrentUser } from "../services/users-service";
+import { registerUser, loginUser, getCurrentUser, logoutUser } from "../services/users-service";
 
 const router = new Hono();
 
@@ -123,13 +123,11 @@ router.get("/current", async (c) => {
   }
 });
 
-export default router;
-
 /**
- * GET /current
- * Get current logged in user
+ * DELETE /logout
+ * Logout user - delete session by token
  */
-router.get("/current", async (c) => {
+router.delete("/logout", async (c) => {
   try {
     // Ambil header Authorization
     const authHeader = c.req.header("Authorization");
@@ -146,11 +144,11 @@ router.get("/current", async (c) => {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    // Panggil service untuk mendapatkan user
-    const user = await getCurrentUser(token);
+    // Panggil service untuk logout
+    await logoutUser(token);
 
-    // Response sukses dengan data user
-    return c.json({ data: user });
+    // Response sukses
+    return c.json({ data: "OK" });
   } catch (error) {
     // Tangkap error dari service
     if (error instanceof Error) {
@@ -162,6 +160,8 @@ router.get("/current", async (c) => {
 
     // Error lain
     console.error("Unexpected error:", error);
-    return c.json({ error: "Get user gagal" }, 500);
+    return c.json({ error: "Logout gagal" }, 500);
   }
 });
+
+export default router;
