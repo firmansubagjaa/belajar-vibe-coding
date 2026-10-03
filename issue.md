@@ -1,153 +1,137 @@
-# Planning: Fitur Login User
+# Planning: API Get Current User
 
 ## Tujuan
 
-Menambahkan tabel `sessions` dan endpoint API untuk login user. Saat login berhasil, server membuat token (UUID), menyimpannya di tabel `sessions`, lalu mengembalikan token tersebut ke client.
+Menambahkan endpoint untuk mengambil data user yang sedang login, berdasarkan token yang dikirim lewat header `Authorization`.
 
 ## Konteks Project Saat Ini
 
 Baca file-file ini dulu sebelum mulai:
 
-- `src/index.ts`: entry point server (framework **Hono**). Router users sudah dipasang di sini dengan `app.route("/api/users", usersRoute)`
-- `src/routes/users-route.ts`: router users. Sudah ada `POST /` untuk registrasi
-- `src/services/users-service.ts`: logika bisnis users. Sudah ada fungsi `registerUser`
-- `src/schema.ts`: skema Drizzle. Sudah ada tabel `users` dan `posts`
+- `src/index.ts`: entry point server (framework **Hono**). Router users dipasang dengan `app.route("/api/users", usersRoute)`
+- `src/routes/users-route.ts`: router users. Sudah ada `POST /` (registrasi) dan `POST /login` (login)
+- `src/services/users-service.ts`: logika bisnis users. Sudah ada `registerUser` dan `loginUser`
+- `src/schema.ts`: skema Drizzle. Ada tabel `users`, `sessions`, dan `posts`
 - `src/db.ts`: koneksi Drizzle ke PostgreSQL Supabase (`export const db`)
-- `drizzle/`: folder migrasi. Sudah ada `0000_mute_crystal.sql` dan `0001_alter_users.sql`
-- `drizzle/meta/_journal.json`: daftar migrasi yang dikenali Drizzle
 
 Hal yang perlu diperhatikan:
 
-- Password di tabel `users` disimpan sebagai hash bcrypt, dibuat dengan `Bun.password.hash`. Untuk mencocokkan password saat login, gunakan pasangannya: `Bun.password.verify`.
-- Di database sudah ada user untuk testing: email `eko@localhost`, password `rahasia`.
-- **Jangan jalankan `bun run generate`.** Snapshot Drizzle di `drizzle/meta/` belum mencatat migrasi `0001`, jadi perintah ini akan bertanya secara interaktif dan membuat ulang perubahan tabel `users` yang sudah diterapkan, sehingga migrasi gagal. Buat file migrasi secara manual (lihat Tahap 2).
-- Endpoint registrasi (`POST /api/users`) dan endpoint lama (`/health`, `/users`, `/posts`) harus tetap berfungsi.
+- **Token disimpan di tabel `sessions`, bukan di tabel `users`.** Saat login, `loginUser` membuat UUID dan menyimpannya di `sessions.token` bersama `sessions.user_id`. Jadi untuk tahu siapa pemilik token, cari di `sessions` lalu ambil user dari `users` berdasarkan `user_id`.
+- Untuk testing, dapatkan token dulu lewat `POST /api/users/login` dengan email `eko@localhost` dan password `rahasia`.
+- Fitur ini **tidak butuh perubahan database** dan tidak butuh migrasi. Jangan jalankan `bun run generate` atau `bun run migrate`.
+- Endpoint registrasi, login, dan endpoint lama (`/health`, `/users`, `/posts`) harus tetap berfungsi.
 
 ## Spesifikasi
 
-### Tabel `sessions`
+### Endpoint
 
-| Kolom      | Tipe         | Aturan                                   |
-|------------|--------------|------------------------------------------|
-| id         | integer      | auto increment, primary key              |
-| token      | varchar(255) | not null, berisi UUID token user login   |
-| user_id    | integer      | not null, foreign key ke `users.id`      |
-| created_at | timestamp    | default current_timestamp                |
+`GET /api/users/current`
 
-Catatan:
+Header:
 
-- Nama tabel memakai `sessions` (jamak) supaya konsisten dengan `users` dan `posts`.
-- `user_id` dibuat `not null` karena session tanpa user tidak ada artinya.
-- Untuk kolom `user_id` di Drizzle, gunakan tipe `integer`, **bukan** `serial`. `serial` hanya untuk kolom id yang auto increment.
+```
+Authorization: Bearer <token>
+```
 
-### Endpoint Login
+`<token>` adalah token UUID yang didapat dari response login.
 
-`POST /api/users/login`
-
-Request body:
+Response sukses (status 200):
 
 ```json
 {
-  "email": "eko@localhost",
-  "password": "rahasia"
+  "data": {
+    "id": 1,
+    "name": "eko",
+    "email": "eko@localhost",
+    "created_at": "2026-10-03T04:47:44.000Z"
+  }
 }
 ```
 
-Response sukses:
+Catatan format response:
+
+- Field tanggal harus bernama `created_at` (snake_case). Drizzle mengembalikan field ini sebagai `createdAt`, jadi harus dipetakan secara manual.
+- **Jangan pernah** sertakan field `password` di response.
+
+Response error (status 401):
 
 ```json
 {
-  "data": "token"
+  "error": "Unauthorized"
 }
 ```
 
-`"token"` di atas adalah contoh. Isinya adalah UUID yang baru dibuat, misalnya `"3f2b8c1e-9a4d-4e6f-b1c2-7d8e9f0a1b2c"`.
+Error ini dikembalikan untuk semua kasus berikut:
 
-Response error (email tidak ditemukan **atau** password salah):
-
-```json
-{
-  "error": "Email atau password salah"
-}
-```
+- Header `Authorization` tidak dikirim
+- Format header bukan `Bearer <token>`
+- Token tidak ditemukan di tabel `sessions`
+- User pemilik token sudah tidak ada
 
 ### Struktur Folder di `src`
 
 - `src/routes/`: berisi definisi routing. Format nama file: `users-route.ts`
 - `src/services/`: berisi logika bisnis. Format nama file: `users-service.ts`
 
-Fitur login masih bagian dari users, jadi **tambahkan ke file yang sudah ada**. Jangan buat file route/service baru.
+Fitur ini masih bagian dari users, jadi **tambahkan ke file yang sudah ada**. Jangan buat file baru.
 
 ## Tahapan Implementasi
 
-### 1. Tambah skema tabel `sessions`
+### 1. Tambah fungsi get current user di service
 
-- Di `src/schema.ts`, tambahkan definisi tabel `sessions` sesuai spesifikasi.
-- `token` pakai `varchar` panjang 255, `user_id` pakai `integer` dengan `.references(() => users.id)`.
-- Jangan ubah definisi tabel `users` atau `posts`.
+- Di `src/services/users-service.ts`, tambahkan fungsi baru yang menerima `token` (string). Alurnya:
+  1. Cari baris di tabel `sessions` yang `token`-nya sama dengan token dari parameter.
+  2. Kalau tidak ditemukan, lempar error dengan pesan `Unauthorized`.
+  3. Ambil user dari tabel `users` berdasarkan `user_id` dari session tersebut.
+  4. Kalau user tidak ditemukan, lempar error dengan pesan `Unauthorized`.
+  5. Kembalikan objek berisi `id`, `name`, `email`, dan `created_at`. Jangan sertakan `password`.
+- Langkah 1 dan 3 boleh digabung menjadi satu query dengan `innerJoin` antara `sessions` dan `users`. Pilih cara yang paling mudah dipahami.
+- Seperti fungsi lain di file ini, service tidak boleh mengurus HTTP (tidak membaca header, tidak mengatur status code).
 
-### 2. Buat migrasi secara manual
+### 2. Tambah route `GET /current`
 
-- Buat file `drizzle/0002_create_sessions.sql` berisi SQL `CREATE TABLE "sessions"` dengan kolom sesuai spesifikasi, ditambah `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY` untuk `user_id` ke `users(id)`. Contoh format bisa dilihat di `drizzle/0000_mute_crystal.sql`.
-- Tambahkan entry baru di `drizzle/meta/_journal.json`:
-  - `idx`: 2
-  - `tag`: `0002_create_sessions` (harus sama persis dengan nama file tanpa `.sql`)
-  - `when`: angka timestamp yang lebih besar dari entry sebelumnya
-  - `version` dan `breakpoints`: samakan dengan entry lain
-- Jalankan `bun run migrate`.
-- Kalau migrate berhasil tapi tabel tidak muncul, cek lagi apakah entry journal sudah benar. Migrasi yang tidak tercatat di journal akan diabaikan.
-
-### 3. Tambah fungsi login di service
-
-- Di `src/services/users-service.ts`, tambahkan fungsi baru untuk login yang menerima `email` dan `password`. Alurnya:
-  1. Cari user berdasarkan email.
-  2. Kalau user tidak ditemukan, lempar error dengan pesan `Email atau password salah`.
-  3. Cocokkan password dari request dengan hash di database memakai `Bun.password.verify`.
-  4. Kalau tidak cocok, lempar error dengan pesan yang **sama persis**: `Email atau password salah`.
-  5. Buat token UUID dengan `crypto.randomUUID()` (bawaan Bun, tidak perlu install apa pun).
-  6. Simpan token dan `user_id` ke tabel `sessions`.
-  7. Kembalikan token.
-- Pesan error untuk email salah dan password salah harus sama. Tujuannya supaya orang luar tidak bisa menebak email mana yang terdaftar.
-- Seperti `registerUser`, service tidak boleh mengurus HTTP (status code atau format response).
-
-### 4. Tambah route login
-
-- Di `src/routes/users-route.ts`, tambahkan handler `POST /login` di router yang sudah ada.
-- Karena router sudah dipasang di `/api/users`, path `/login` otomatis menjadi `/api/users/login`. **Tidak perlu** mengubah `src/index.ts`.
+- Di `src/routes/users-route.ts`, tambahkan handler `GET /current` di router yang sudah ada.
+- Karena router dipasang di `/api/users`, path `/current` otomatis menjadi `/api/users/current`. **Tidak perlu** mengubah `src/index.ts`.
 - Alur handler:
-  1. Ambil body JSON dari request.
-  2. Kalau `email` atau `password` kosong, kembalikan error dengan status 400.
-  3. Panggil fungsi login dari service.
-  4. Kalau sukses, kembalikan `{ "data": "<token>" }`.
-  5. Kalau service melempar error `Email atau password salah`, kembalikan `{ "error": "Email atau password salah" }` dengan status HTTP 401.
-  6. Error lain: kembalikan status 500 dan log error-nya ke console.
-- Ikuti pola handler registrasi yang sudah ada di file yang sama.
+  1. Baca header `Authorization` dengan `c.req.header("Authorization")`.
+  2. Kalau header kosong atau tidak diawali `Bearer ` (dengan spasi), langsung kembalikan `{ "error": "Unauthorized" }` status 401.
+  3. Ambil token dengan membuang awalan `Bearer `. Kalau hasilnya kosong, kembalikan 401.
+  4. Panggil fungsi service dengan token tersebut.
+  5. Kalau sukses, kembalikan `{ "data": <hasil service> }`.
+  6. Kalau service melempar error `Unauthorized`, kembalikan `{ "error": "Unauthorized" }` status 401.
+  7. Error lain: log ke console dan kembalikan status 500.
+- Ikuti pola handler registrasi dan login yang sudah ada di file yang sama.
 
-### 5. Verifikasi
+### 3. Verifikasi
 
-Jalankan server (`bun run dev`), lalu tes manual dengan HTTP client:
+Jalankan server (`bun run dev`), lalu tes manual:
 
-1. `POST /api/users/login` dengan email `eko@localhost` dan password `rahasia`. Harus dapat `{ "data": "<uuid>" }`.
-2. Login lagi dengan password salah. Harus dapat `{ "error": "Email atau password salah" }` dengan status 401.
-3. Login dengan email yang tidak terdaftar. Harus dapat pesan error yang sama dengan status 401.
-4. Login dua kali dengan data benar. Token yang didapat harus berbeda setiap kali.
-5. Cek tabel `sessions` di dashboard Supabase: ada baris baru dengan token yang sama seperti response, dan `user_id` sesuai id user Eko.
-6. Pastikan `POST /api/users` (registrasi) dan `GET /health` masih jalan.
+1. Login dengan `POST /api/users/login` (email `eko@localhost`, password `rahasia`) untuk mendapatkan token.
+2. `GET /api/users/current` dengan header `Authorization: Bearer <token>`. Harus dapat data user Eko dengan field `id`, `name`, `email`, `created_at`, dan **tanpa** `password`.
+3. `GET /api/users/current` tanpa header `Authorization`. Harus dapat `{ "error": "Unauthorized" }` status 401.
+4. Kirim token acak yang tidak ada di database (misalnya `Bearer abc123`). Harus dapat 401.
+5. Kirim header tanpa awalan `Bearer` (misalnya hanya token-nya saja). Harus dapat 401.
+6. Pastikan registrasi, login, dan `GET /health` masih jalan.
 
-Catatan untuk Windows PowerShell: perintah `curl` di PowerShell adalah alias `Invoke-WebRequest` dan tidak menerima flag `-X`. Gunakan `Invoke-WebRequest -UseBasicParsing`, `curl.exe`, atau HTTP client seperti Postman.
+Contoh perintah PowerShell untuk langkah 2:
+
+```powershell
+$headers = @{ Authorization = "Bearer <token>" }
+Invoke-WebRequest -Uri "http://localhost:3000/api/users/current" -Headers $headers -UseBasicParsing
+```
+
+Catatan: di Windows PowerShell, `curl` adalah alias `Invoke-WebRequest` dan tidak menerima flag `-H`/`-X`. Gunakan contoh di atas, `curl.exe`, atau Postman.
 
 ## Kriteria Selesai
 
-- Tabel `sessions` ada di Supabase sesuai spesifikasi, dengan foreign key ke `users`
-- Fungsi login ada di `src/services/users-service.ts`
-- Route `POST /login` ada di `src/routes/users-route.ts`
-- Login benar mengembalikan `{ "data": "<uuid>" }` dan menyimpan session ke database
-- Email atau password salah mengembalikan `{ "error": "Email atau password salah" }` dengan status 401
-- Fitur registrasi dan endpoint lama tetap berfungsi
+- Fungsi get current user ada di `src/services/users-service.ts`
+- Route `GET /current` ada di `src/routes/users-route.ts`
+- Token valid mengembalikan data user dengan format sesuai spesifikasi, tanpa password
+- Semua kasus token tidak valid mengembalikan `{ "error": "Unauthorized" }` status 401
+- Registrasi, login, dan endpoint lama tetap berfungsi
 
 ## Di Luar Cakupan
 
-- Middleware untuk mengecek token di endpoint lain
+- Middleware autentikasi yang bisa dipakai ulang di endpoint lain
 - Logout (menghapus session)
 - Masa berlaku token (expired)
-- Memperbaiki snapshot Drizzle di `drizzle/meta/` (sebaiknya jadi issue terpisah)
