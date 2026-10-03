@@ -33,19 +33,6 @@ app.get("/users/:id", async (c) => {
   return c.json(user[0] || { error: "User not found" });
 });
 
-// Create user
-app.post("/users", async (c) => {
-  const body = await c.req.json();
-  const result = await db
-    .insert(users)
-    .values({
-      name: body.name,
-      email: body.email,
-    })
-    .returning();
-  return c.json(result[0]);
-});
-
 // Update user
 app.put("/users/:id", async (c) => {
   const id = Number(c.req.param("id"));

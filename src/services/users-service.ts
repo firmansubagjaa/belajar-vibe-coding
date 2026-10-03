@@ -61,6 +61,9 @@ export async function registerUser(input: RegisterInput): Promise<UserResponse> 
       .returning();
 
     const newUser = result[0];
+    if (!newUser) {
+      throw new Error("Gagal menyimpan user");
+    }
     return {
       id: newUser.id,
       name: newUser.name,
@@ -80,20 +83,20 @@ export async function registerUser(input: RegisterInput): Promise<UserResponse> 
 export async function loginUser(input: LoginInput): Promise<string> {
   try {
     // Cari user berdasarkan email
-    const user = await db
+    const [user] = await db
       .select()
       .from(users)
       .where(eq(users.email, input.email))
       .limit(1);
 
-    if (user.length === 0) {
+    if (!user) {
       throw new Error("Email atau password salah");
     }
 
     // Cocokkan password dengan hash di database
     const isPasswordValid = await Bun.password.verify(
       input.password,
-      user[0].password
+      user.password
     );
 
     if (!isPasswordValid) {
@@ -106,7 +109,7 @@ export async function loginUser(input: LoginInput): Promise<string> {
     // Simpan session ke database
     await db.insert(sessions).values({
       token,
-      userId: user[0].id,
+      userId: user.id,
     });
 
     return token;
