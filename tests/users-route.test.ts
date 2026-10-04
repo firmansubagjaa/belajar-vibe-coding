@@ -260,6 +260,56 @@ describe("Users Route", () => {
       });
       expect(res.status).toBe(400);
     });
+
+    it("should return 400 when name exceeds 255 characters", async () => {
+      const app = createTestApp();
+      const longName = "a".repeat(300);
+      const res = await app.request("/users", {
+        method: "POST",
+        body: JSON.stringify({
+          name: longName,
+          email: "test@example.com",
+          password: "pass",
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(res.status).toBe(400);
+      const data = (await res.json()) as JsonResponse;
+      expect(data.error).toBe("name maksimal 255 karakter");
+    });
+
+    it("should return 400 when email exceeds 255 characters", async () => {
+      const app = createTestApp();
+      const longEmail = "a".repeat(260) + "@example.com";
+      const res = await app.request("/users", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "John",
+          email: longEmail,
+          password: "pass",
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(res.status).toBe(400);
+      const data = (await res.json()) as JsonResponse;
+      expect(data.error).toBe("email maksimal 255 karakter");
+    });
+
+    it("should return 400 when name is not a string", async () => {
+      const app = createTestApp();
+      const res = await app.request("/users", {
+        method: "POST",
+        body: JSON.stringify({
+          name: 123,
+          email: "test@example.com",
+          password: "pass",
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(res.status).toBe(400);
+      const data = (await res.json()) as JsonResponse;
+      expect(data.error).toBe("name harus berupa string");
+    });
   });
 
   describe("Route methods", () => {

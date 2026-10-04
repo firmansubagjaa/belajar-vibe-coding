@@ -8,6 +8,9 @@ import {
 
 const router = new Hono();
 
+const MAX_NAME_LENGTH = 255;
+const MAX_EMAIL_LENGTH = 255;
+
 /**
  * Ambil token dari header "Authorization: Bearer <token>" atau "Authorization: bearer <token>"
  * Case-insensitive: both "Bearer" and "bearer" are accepted
@@ -35,6 +38,22 @@ router.post("/", async (c) => {
         { error: "name, email, dan password harus diisi" },
         400
       );
+    }
+
+    // Validasi tipe dan panjang name
+    if (typeof body.name !== "string") {
+      return c.json({ error: "name harus berupa string" }, 400);
+    }
+    if (body.name.length > MAX_NAME_LENGTH) {
+      return c.json({ error: "name maksimal 255 karakter" }, 400);
+    }
+
+    // Validasi tipe dan panjang email
+    if (typeof body.email !== "string") {
+      return c.json({ error: "email harus berupa string" }, 400);
+    }
+    if (body.email.length > MAX_EMAIL_LENGTH) {
+      return c.json({ error: "email maksimal 255 karakter" }, 400);
     }
 
     // Panggil service untuk registrasi

@@ -48,37 +48,32 @@ export async function registerUser(input: RegisterInput): Promise<UserResponse> 
     throw new EmailAlreadyExistsError("Email sudah terdaftar");
   }
 
-  try {
-    // Hash password dengan bcrypt (Bun built-in)
-    const hashedPassword = await Bun.password.hash(input.password, {
-      algorithm: "bcrypt",
-      cost: 10,
-    });
+  // Hash password dengan bcrypt (Bun built-in)
+  const hashedPassword = await Bun.password.hash(input.password, {
+    algorithm: "bcrypt",
+    cost: 10,
+  });
 
-    // Simpan user baru
-    const result = await db
-      .insert(users)
-      .values({
-        name: input.name,
-        email: input.email,
-        password: hashedPassword,
-      })
-      .returning();
+  // Simpan user baru
+  const result = await db
+    .insert(users)
+    .values({
+      name: input.name,
+      email: input.email,
+      password: hashedPassword,
+    })
+    .returning();
 
-    const newUser = result[0];
-    if (!newUser) {
-      throw new Error("Gagal menyimpan user");
-    }
-    return {
-      id: newUser.id,
-      name: newUser.name,
-      email: newUser.email,
-      createdAt: newUser.createdAt,
-    };
-  } catch (error) {
-    console.error("Error in registerUser:", error);
-    throw error;
+  const newUser = result[0];
+  if (!newUser) {
+    throw new Error("Gagal menyimpan user");
   }
+  return {
+    id: newUser.id,
+    name: newUser.name,
+    email: newUser.email,
+    createdAt: newUser.createdAt,
+  };
 }
 
 /**
